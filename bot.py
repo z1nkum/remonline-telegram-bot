@@ -24,11 +24,17 @@ API_TOKEN = '' # empty at start
 API_BASE_URL = "https://api.remonline.ru/"
 API_MAX_RETRIES = 5
 
+DEBUG = os.getenv('DEBUG', False)
 HTTP_CLIENT_TIMEOUT = 5
+
+if DEBUG:
+    log_lvl = logging.DEBUG
+else:
+    log_lvl = logging.INFO
 
 # Enable logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.DEBUG)
+                    level=log_lvl)
 
 logger = logging.getLogger(__name__)
 
