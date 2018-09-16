@@ -16,12 +16,13 @@ except ImportError: # Python 2
 
 
 TG_TOKEN = os.getenv('TG_TOKEN', "")
+TG_CHAT_IDS = os.getenv('TG_CHAT_IDS', "")
+TG_CHAT_LST = []
 
 API_KEY = os.getenv('API_KEY', "")
 API_TOKEN = '' # empty at start
 API_BASE_URL = "https://api.remonline.ru/"
 API_MAX_RETRIES = 5
-
 
 HTTP_CLIENT_TIMEOUT = 5
 
@@ -116,6 +117,31 @@ def client_list(bot, update):
     update.message.reply_text(clients_str)
 
 
+def check_params():
+
+    global TG_CHAT_LST
+
+    if TG_TOKEN == "":
+        logger.error("You must specify TG_TOKEN environment variable")
+        exit(0)
+
+    if TG_CHAT_IDS == "":
+        logger.error("You must specify TG_CHAT_IDS environment variable")
+        exit(0)
+
+    try:
+        TG_CHAT_LST = map(str.strip, TG_CHAT_IDS.split(','))
+        TG_CHAT_LST = [int(x) for x in TG_CHAT_LST]
+        logger.debug("Allowed chat_ids: '%s'", TG_CHAT_LST)
+    except:
+        logger.error("Error on cast TG_CHAT_IDS to list of int")
+        exit(0)
+
+    if API_KEY == "":
+        logger.error("You must specify API_KEY environment variable")
+        exit(0)
+
+
 def main():
     """Start the bot."""
     # Create the EventHandler and pass it your bot's token.
@@ -127,10 +153,10 @@ def main():
     # on different commands - answer in Telegram
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("help", help))
-    dp.add_handler(CommandHandler("get_orders", get_orders))
-    dp.add_handler(CommandHandler("go", get_orders))
-    dp.add_handler(CommandHandler("clients", client_list))
-    dp.add_handler(CommandHandler("cl", client_list))
+    dp.add_handler(CommandHandler("get_orders", get_orders, filters=(Filters.chat(TG_CHAT_LST))))
+    dp.add_handler(CommandHandler("go", get_orders, filters=(Filters.chat(TG_CHAT_LST))))
+    dp.add_handler(CommandHandler("clients", client_list, filters=(Filters.chat(TG_CHAT_LST))))
+    dp.add_handler(CommandHandler("cl", client_list, filters=Filters.chat(chat_id=TG_CHAT_LST)))
 
     # on noncommand i.e message - echo the message on Telegram
     dp.add_handler(MessageHandler(Filters.text, echo))
@@ -148,4 +174,5 @@ def main():
 
 
 if __name__ == '__main__':
+    check_params()
     main()
