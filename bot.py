@@ -27,6 +27,8 @@ API_MAX_RETRIES = 5
 DEBUG = os.getenv('DEBUG', False)
 HTTP_CLIENT_TIMEOUT = 5
 
+EMPLOYEES = {}
+
 if DEBUG:
     log_lvl = logging.DEBUG
 else:
@@ -110,7 +112,18 @@ def error(bot, update, error):
 def get_orders(bot, update):
     """ Get orders from external system """
     result = remonline_api_get('order/')
-    update.message.reply_text(result)
+    orders_lst = []
+    for o in result['data']:
+        if o['status']['group'] in [6, 7]:
+            # we don't need closed and canceled orders
+            continue
+        if o['engineer_id'] in EMPLOYEES:
+            engineer = EMPLOYEES[o['engineer_id']]['first_name'] + ' ' + EMPLOYEES[o['engineer_id']]['last_name']
+        else:
+            engineer = '=FREE='
+        orders_lst.append(" ".join([o['id_label'], o['client']['name'], '(', o['status']['name'], ')', engineer]))
+    orders_str = '\n'.join(orders_lst)
+    update.message.reply_text(orders_str)
 
 
 def client_list(bot, update):
@@ -123,9 +136,28 @@ def client_list(bot, update):
     update.message.reply_text(clients_str)
 
 
+def status_list(bot, update):
+    """ Get status list from external system """
+    result = remonline_api_get('statuses/')
+    s_lst = []
+    for s in result['data']:
+        s_lst.append(" ".join([str(s['id']), s['name'], str(s['group'])]))
+    s_str = '\n'.join(s_lst)
+    update.message.reply_text(s_str)
+
+
+def employees_list():
+    employees_lst = remonline_api_get('employees/')['data']
+    employees_dict = {}
+    for e in employees_lst:
+        employees_dict[e['id']] = e
+    return employees_dict
+
+
 def check_params():
 
     global TG_CHAT_LST
+    global EMPLOYEES
 
     if TG_TOKEN == "":
         logger.error("You must specify TG_TOKEN environment variable")
@@ -147,6 +179,9 @@ def check_params():
         logger.error("You must specify API_KEY environment variable")
         exit(0)
 
+    EMPLOYEES = employees_list()
+    logger.debug("EMPLOYEES: '%s'", EMPLOYEES)
+
 
 def main():
     """Start the bot."""
@@ -163,6 +198,7 @@ def main():
     dp.add_handler(CommandHandler("go", get_orders, filters=(Filters.chat(TG_CHAT_LST))))
     dp.add_handler(CommandHandler("clients", client_list, filters=(Filters.chat(TG_CHAT_LST))))
     dp.add_handler(CommandHandler("cl", client_list, filters=Filters.chat(chat_id=TG_CHAT_LST)))
+    dp.add_handler(CommandHandler("statuses", status_list, filters=(Filters.chat(TG_CHAT_LST))))
 
     # on noncommand i.e message - echo the message on Telegram
     dp.add_handler(MessageHandler(Filters.text, echo))
