@@ -1,0 +1,12 @@
+version: "2"
+services:
+  nginx-router:
+    image: z1nkum/remonline-telegram-bot:latest
+    container_name: remonline-tg
+    environment:
+      # you should specify these variables here or in .env file (see example)
+      - TG_TOKEN=${TG_TOKEN}
+      - TG_CHAT_IDS=${TG_CHAT_IDS}
+      - TG_CHAT_NOTICE_IDS=${TG_CHAT_NOTICE_IDS}
+      - API_KEY=${API_KEY}
+      - DEBUG=${DEBUG}

@@ -5,24 +5,24 @@
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 import logging
 import os
-import urllib
-import json
 import requests
-
-try:
-    from urllib.request import Request, urlopen
-except ImportError: # Python 2
-    from urllib2 import Request, urlopen, HTTPError
+import re
 
 
 TG_TOKEN = os.getenv('TG_TOKEN', "")
 TG_CHAT_IDS = os.getenv('TG_CHAT_IDS', "")
 TG_CHAT_LST = []
+TG_CHAT_NOTICE_IDS = os.getenv('TG_CHAT_NOTICE_IDS', "")
+TG_CHAT_NOTICE_LST = []
 
 API_KEY = os.getenv('API_KEY', "")
 API_TOKEN = '' # empty at start
 API_BASE_URL = "https://api.remonline.ru/"
 API_MAX_RETRIES = 5
+API_POLL_INTERVAL_SEC = 5
+
+TRACK_DICT = {}
+
 
 DEBUG = os.getenv('DEBUG', False)
 HTTP_CLIENT_TIMEOUT = 5
@@ -89,24 +89,50 @@ def remonline_api_get(api_path, token=API_TOKEN, filters={}, page=1, retries=0):
     return None
 
 
-def start(bot, update):
-    """Send a message when the command /start is issued."""
-    update.message.reply_text('Hi!')
-
-
 def help(bot, update):
     """Send a message when the command /help is issued."""
     update.message.reply_text('Help!')
 
 
-def echo(bot, update):
-    """Echo the user message."""
-    update.message.reply_text(update.message.text)
-
-
 def error(bot, update, error):
     """Log Errors caused by Updates."""
     logger.warning('Update "%s" caused error "%s"', update, error)
+
+
+def poll_orders():
+    """ track orders on periodic manner """
+    global TRACK_DICT
+
+    first_time_flag = False
+    result = remonline_api_get('order/')
+
+    if 'orders' not in TRACK_DICT:
+        # just started - no tracking orders. Fill-up and silently wait for changes
+
+        TRACK_DICT['orders'] = {}
+
+        for o in result['data']:
+            if o['status']['group'] in [6, 7]:
+                # we don't need closed and canceled orders
+                continue
+
+            if o['engineer_id'] in EMPLOYEES:
+                engineer = EMPLOYEES[o['engineer_id']]['first_name'] + ' ' + EMPLOYEES[o['engineer_id']]['last_name']
+            else:
+                engineer = '=FREE='
+
+            TRACK_DICT['orders'][o['id_label']] = { 'status': o['status']['name'], 'engineer': engineer}
+
+        logging.debug("First time tracking. Fill-up and silently wait for changes. Tracking dict for orders: '%s'",
+                      TRACK_DICT['orders'])
+        return None
+
+    else:
+
+        logging.debug("Order tracking loop with non-zero tracking dict")
+
+        # orders_lst.append(" ".join([o['id_label'], o['client']['name'], '(', o['status']['name'], ')', engineer]))
+    return None
 
 
 def get_orders(bot, update):
@@ -123,7 +149,7 @@ def get_orders(bot, update):
             engineer = '=FREE='
         orders_lst.append(" ".join([o['id_label'], o['client']['name'], '(', o['status']['name'], ')', engineer]))
     orders_str = '\n'.join(orders_lst)
-    update.message.reply_text(orders_str)
+    update.message.reply_text(orders_str, quote=False)
 
 
 def client_list(bot, update):
@@ -133,7 +159,7 @@ def client_list(bot, update):
     for cl in result['data']:
         client_lst.append(cl['name'])
     clients_str = '\n'.join(client_lst)
-    update.message.reply_text(clients_str)
+    update.message.reply_text(clients_str, quote=False)
 
 
 def status_list(bot, update):
@@ -143,20 +169,34 @@ def status_list(bot, update):
     for s in result['data']:
         s_lst.append(" ".join([str(s['id']), s['name'], str(s['group'])]))
     s_str = '\n'.join(s_lst)
-    update.message.reply_text(s_str)
+    update.message.reply_text(s_str, quote=False)
 
 
 def employees_list():
     employees_lst = remonline_api_get('employees/')['data']
     employees_dict = {}
     for e in employees_lst:
+        m = re.search('tg:(\S+)', e['notes'])
+        if m:
+            e['tg_handle'] = m.group(1)
         employees_dict[e['id']] = e
     return employees_dict
+
+
+def poll_api(bot, job):
+
+    notice = poll_orders()
+
+    if notice:
+        for c in TG_CHAT_NOTICE_LST:
+            bot.send_message(chat_id=c, text=notice)
+            logger.debug("Notice to chat '%s' send with text '%s'", c, notice)
 
 
 def check_params():
 
     global TG_CHAT_LST
+    global TG_CHAT_NOTICE_LST
     global EMPLOYEES
 
     if TG_TOKEN == "":
@@ -175,6 +215,15 @@ def check_params():
         logger.error("Error on cast TG_CHAT_IDS to list of int")
         exit(0)
 
+    if TG_CHAT_NOTICE_IDS != "":
+        try:
+            TG_CHAT_NOTICE_LST = map(str.strip, TG_CHAT_NOTICE_IDS.split(','))
+            TG_CHAT_NOTICE_LST = [int(x) for x in TG_CHAT_NOTICE_LST]
+            logger.debug("Chats for poll notice: '%s'", TG_CHAT_NOTICE_LST)
+        except:
+            logger.error("Error on cast TG_CHAT_NOTICE_LST to list of int")
+            exit(0)
+
     if API_KEY == "":
         logger.error("You must specify API_KEY environment variable")
         exit(0)
@@ -192,7 +241,6 @@ def main():
     dp = updater.dispatcher
 
     # on different commands - answer in Telegram
-    dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("help", help))
     dp.add_handler(CommandHandler("get_orders", get_orders, filters=(Filters.chat(TG_CHAT_LST))))
     dp.add_handler(CommandHandler("go", get_orders, filters=(Filters.chat(TG_CHAT_LST))))
@@ -200,8 +248,9 @@ def main():
     dp.add_handler(CommandHandler("cl", client_list, filters=Filters.chat(chat_id=TG_CHAT_LST)))
     dp.add_handler(CommandHandler("statuses", status_list, filters=(Filters.chat(TG_CHAT_LST))))
 
-    # on noncommand i.e message - echo the message on Telegram
-    dp.add_handler(MessageHandler(Filters.text, echo))
+    if TG_CHAT_NOTICE_LST:
+        j = updater.job_queue
+        job_minute = j.run_repeating(poll_api, interval=API_POLL_INTERVAL_SEC, first=0)
 
     # log all errors
     dp.add_error_handler(error)
