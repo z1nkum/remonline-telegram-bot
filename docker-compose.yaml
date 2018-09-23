@@ -2,6 +2,7 @@ version: "2"
 services:
   nginx-router:
     image: z1nkum/remonline-telegram-bot:latest
+    # image: tg-bot:latest
     container_name: remonline-tg
     environment:
       # you should specify these variables here or in .env file (see example)

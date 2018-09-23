@@ -19,7 +19,8 @@ API_KEY = os.getenv('API_KEY', "")
 API_TOKEN = '' # empty at start
 API_BASE_URL = "https://api.remonline.ru/"
 API_MAX_RETRIES = 5
-API_POLL_INTERVAL_SEC = 5
+API_POLL_INTERVAL_SEC = 15
+API_REC_PER_PAGE = 50
 
 TRACK_DICT = {}
 
@@ -79,7 +80,11 @@ def remonline_api_get(api_path, token=API_TOKEN, filters={}, page=1, retries=0):
     logger.debug('API request to "%s" with filters "%s" return code "%s" and data "%s"',
                  url, filters, r.status_code, r.text)
     if r.status_code == 200:
-        return r.json()
+        res = r.json()
+        if 'page' in res and 'count' in res:
+            if int(res['count']) > int(res['page']) * API_REC_PER_PAGE:
+                res['data'] += remonline_api_get(api_path, token, filters, page + 1, retries)['data']
+        return res
 
     elif r.status_code == 403:
         new_token = remonline_api_renew_token()
@@ -99,12 +104,55 @@ def error(bot, update, error):
     logger.warning('Update "%s" caused error "%s"', update, error)
 
 
+def order_sting_helper(o):
+    if 'engineer_id' in o:
+        e_id = o['engineer_id']
+    else:
+        e_id = None
+    return "{} {} ({}) {}".format(o['id_label'], o['client']['name'],
+                                  o['status']['name'], engineer_name_helper(e_id))
+
+
+def engineer_name_helper(engineer_id):
+    if engineer_id in EMPLOYEES:
+        engineer = EMPLOYEES[engineer_id]['first_name'] + ' ' + EMPLOYEES[engineer_id]['last_name']
+    else:
+        engineer = '=FREE='
+
+    return engineer
+
+
+def compare_orders(current_order_list):
+    """ compare two lists of orders, change state and return notice text for channel """
+    global TRACK_DICT
+    ret = []
+
+    for o in current_order_list:
+
+        if 'engineer_id' in o:
+            e_id = o['engineer_id']
+        else:
+            e_id = None
+
+        if o['id_label'] in TRACK_DICT['orders']:
+            if TRACK_DICT['orders'][o['id_label']]['status'] != o['status']['name']:
+                ret.append("Status was changed: {}".format(order_sting_helper(o)))
+            if TRACK_DICT['orders'][o['id_label']]['engineer'] != engineer_name_helper(e_id):
+                ret.append("Engineer was changed: {}".format(order_sting_helper(o)))
+        else:
+            ret.append("New order: {}".format(order_sting_helper(o)))
+
+        TRACK_DICT['orders'][o['id_label']] = {'status': o['status']['name'],
+                                               'engineer': engineer_name_helper(e_id)}
+    return '\n'.join(ret)
+
+
 def poll_orders():
     """ track orders on periodic manner """
     global TRACK_DICT
 
-    first_time_flag = False
-    result = remonline_api_get('order/')
+    filters = {}
+    result = remonline_api_get('order/', filters=filters)
 
     if 'orders' not in TRACK_DICT:
         # just started - no tracking orders. Fill-up and silently wait for changes
@@ -112,27 +160,22 @@ def poll_orders():
         TRACK_DICT['orders'] = {}
 
         for o in result['data']:
-            if o['status']['group'] in [6, 7]:
-                # we don't need closed and canceled orders
-                continue
 
-            if o['engineer_id'] in EMPLOYEES:
-                engineer = EMPLOYEES[o['engineer_id']]['first_name'] + ' ' + EMPLOYEES[o['engineer_id']]['last_name']
+            if 'engineer_id' in o:
+                e_id = o['engineer_id']
             else:
-                engineer = '=FREE='
+                e_id = None
 
-            TRACK_DICT['orders'][o['id_label']] = { 'status': o['status']['name'], 'engineer': engineer}
+            TRACK_DICT['orders'][o['id_label']] = {'status': o['status']['name'],
+                                                   'engineer': engineer_name_helper(e_id)}
 
         logging.debug("First time tracking. Fill-up and silently wait for changes. Tracking dict for orders: '%s'",
                       TRACK_DICT['orders'])
         return None
 
     else:
-
         logging.debug("Order tracking loop with non-zero tracking dict")
-
-        # orders_lst.append(" ".join([o['id_label'], o['client']['name'], '(', o['status']['name'], ')', engineer]))
-    return None
+        return compare_orders(result['data'])
 
 
 def get_orders(bot, update):
@@ -143,11 +186,9 @@ def get_orders(bot, update):
         if o['status']['group'] in [6, 7]:
             # we don't need closed and canceled orders
             continue
-        if o['engineer_id'] in EMPLOYEES:
-            engineer = EMPLOYEES[o['engineer_id']]['first_name'] + ' ' + EMPLOYEES[o['engineer_id']]['last_name']
-        else:
-            engineer = '=FREE='
-        orders_lst.append(" ".join([o['id_label'], o['client']['name'], '(', o['status']['name'], ')', engineer]))
+
+        orders_lst.append(order_sting_helper(o))
+
     orders_str = '\n'.join(orders_lst)
     update.message.reply_text(orders_str, quote=False)
 
