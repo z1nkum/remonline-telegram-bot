@@ -104,13 +104,27 @@ def error(bot, update, error):
     logger.warning('Update "%s" caused error "%s"', update, error)
 
 
-def order_sting_helper(o):
+def order_sting_helper(o, detailed_flag):
+
     if 'engineer_id' in o:
         e_id = o['engineer_id']
     else:
         e_id = None
-    return "{} {} ({}) {}".format(o['id_label'], o['client']['name'],
-                                  o['status']['name'], engineer_name_helper(e_id))
+    if detailed_flag:
+        ret = "*{}* {} ({}) *{}*\n*model*: `{}`\n*malfunction*: `{}`\n*manager_notes*: `{}`\n*engineer_notes*: `{}`".format(
+            o['id_label'],
+            o['client']['name'],
+            o['status']['name'],
+            engineer_name_helper(e_id),
+            o['model'],
+            o['malfunction'],
+            o['manager_notes'],
+            o['engineer_notes'])
+    else:
+        ret = "*{}* {} ({}) *{}*".format(o['id_label'], o['client']['name'],
+                                     o['status']['name'], engineer_name_helper(e_id))
+
+    return ret
 
 
 def engineer_name_helper(engineer_id):
@@ -178,19 +192,27 @@ def poll_orders():
         return compare_orders(result['data'])
 
 
-def get_orders(bot, update):
+def get_orders(bot, update, args):
     """ Get orders from external system """
-    result = remonline_api_get('order/')
+
+    filters = {}
+    orders_detailed = False
+
+    if len(args) > 0:
+        filters = {'id_labels[]': args[0]}
+        orders_detailed = True
+
+    result = remonline_api_get('order/', filters=filters)
     orders_lst = []
     for o in result['data']:
         if o['status']['group'] in [6, 7]:
             # we don't need closed and canceled orders
             continue
 
-        orders_lst.append(order_sting_helper(o))
+        orders_lst.append(order_sting_helper(o, orders_detailed))
 
     orders_str = '\n'.join(orders_lst)
-    update.message.reply_text(orders_str, quote=False)
+    update.message.reply_markdown(orders_str, quote=False)
 
 
 def client_list(bot, update):
@@ -283,10 +305,9 @@ def main():
 
     # on different commands - answer in Telegram
     dp.add_handler(CommandHandler("help", help))
-    dp.add_handler(CommandHandler("get_orders", get_orders, filters=(Filters.chat(TG_CHAT_LST))))
-    dp.add_handler(CommandHandler("go", get_orders, filters=(Filters.chat(TG_CHAT_LST))))
-    dp.add_handler(CommandHandler("clients", client_list, filters=(Filters.chat(TG_CHAT_LST))))
-    dp.add_handler(CommandHandler("cl", client_list, filters=Filters.chat(chat_id=TG_CHAT_LST)))
+    dp.add_handler(CommandHandler(["get_orders", "go"], get_orders, filters=(Filters.chat(TG_CHAT_LST)),
+                                  pass_args=True))
+    dp.add_handler(CommandHandler(["clients", "cl"], client_list, filters=(Filters.chat(TG_CHAT_LST))))
     dp.add_handler(CommandHandler("statuses", status_list, filters=(Filters.chat(TG_CHAT_LST))))
 
     if TG_CHAT_NOTICE_LST:
