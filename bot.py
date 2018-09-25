@@ -96,9 +96,9 @@ def remonline_api_get(api_path, token=API_TOKEN, filters={}, page=1, retries=0):
     return None
 
 
-def help(bot, update):
-    """Send a message when the command /help is issued."""
-    update.message.reply_text('Help!')
+def chat_id(bot, update):
+    """Send this chat_id in reply """
+    update.message.reply_text(update.message.chat_id)
 
 
 def error(bot, update, error):
@@ -306,7 +306,7 @@ def main():
     dp = updater.dispatcher
 
     # on different commands - answer in Telegram
-    dp.add_handler(CommandHandler("help", help))
+    dp.add_handler(CommandHandler("chat_id", chat_id))
     dp.add_handler(CommandHandler(["get_orders", "go"], get_orders, filters=(Filters.chat(TG_CHAT_LST)),
                                   pass_args=True))
     dp.add_handler(CommandHandler(["clients", "cl"], client_list, filters=(Filters.chat(TG_CHAT_LST))))

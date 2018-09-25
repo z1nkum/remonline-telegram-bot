@@ -1,7 +1,7 @@
 version: "2"
 services:
   remonline-tg:
-    image: z1nkum/remonline-telegram-bot:latest
+    build: .
     container_name: remonline-tg
     environment:
       # you should specify these variables here or in .env file (see example)
