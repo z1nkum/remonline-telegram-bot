@@ -3,6 +3,8 @@
 
 
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from telegram import ParseMode
+
 import logging
 import os
 import requests
@@ -104,7 +106,7 @@ def error(bot, update, error):
     logger.warning('Update "%s" caused error "%s"', update, error)
 
 
-def order_sting_helper(o, detailed_flag):
+def order_sting_helper(o, detailed_flag=False):
 
     if 'engineer_id' in o:
         e_id = o['engineer_id']
@@ -252,7 +254,7 @@ def poll_api(bot, job):
 
     if notice:
         for c in TG_CHAT_NOTICE_LST:
-            bot.send_message(chat_id=c, text=notice)
+            bot.send_message(chat_id=c, text=notice, parse_mode=ParseMode.MARKDOWN)
             logger.debug("Notice to chat '%s' send with text '%s'", c, notice)
 
 
