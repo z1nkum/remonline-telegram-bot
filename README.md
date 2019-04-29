@@ -2,6 +2,10 @@
 
 Telegram bot for remonline.ru
 
+### Telegram API access notice
+
+The bot needs a direct connection to the Telegram API servers (surprise!), and recently in some countries it does not work very well. Therefore, we recommend installing the bot on hosting outside these countries
+
 ### Getting starting
 
 At first you need to [create your own Telegram bot](https://core.telegram.org/bots#3-how-do-i-create-a-bot)
@@ -18,7 +22,7 @@ You can run bot at this point with some python virtual environments magic, but w
 
 ### Docker Compose
 
-Install dicker/docker compose
+Install docker/docker compose
 
 Copy .env.sample to .env and place it near the docker-compose.yaml
 
@@ -54,6 +58,54 @@ Place following variables to .env file near the docker-compose.yaml
 | /clients, /cl   | yes | Get list of clients |
 | /chat_id   | no | Get current chat id. Use it to define TG_CHAT_IDS and/or TG_CHAT_NOTICE_IDS|
 | /statuses       | yes | Get list of possible order statuses | 
+
+
+### Permanent Docker Compose via systemd
+
+```bash
+mkdir -p /etc/docker/compose/remonline
+cp docker-compose.yaml /etc/docker/compose/remonline/
+cp .env /etc/docker/compose/remonline/
+```
+
+/etc/systemd/system/docker-compose@.service
+
+```
+[Unit]
+Description=%i service with docker compose
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart=always
+
+WorkingDirectory=/etc/docker/compose/%i
+
+# Remove old containers, images and volumes. Always pull new image
+ExecStartPre=/bin/docker-compose down -v
+ExecStartPre=/bin/docker-compose rm -fv
+ExecStartPre=/bin/docker-compose pull
+ExecStartPre=-/bin/bash -c 'docker volume ls -qf "name=%i_" | xargs docker volume rm'
+ExecStartPre=-/bin/bash -c 'docker network ls -qf "name=%i_" | xargs docker network rm'
+ExecStartPre=-/bin/bash -c 'docker ps -aqf "name=%i_*" | xargs docker rm'
+
+# Compose up
+ExecStart=/bin/docker-compose up
+
+# Compose down, remove containers and volumes
+ExecStop=/bin/docker-compose down -v
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start service
+
+```
+systemctl enable docker-compose@remonline.service
+systemctl start docker-compose@remonline.service
+```
+
 
 ### Related links
 
