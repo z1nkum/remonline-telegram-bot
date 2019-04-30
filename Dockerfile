@@ -1,4 +1,4 @@
-FROM python:3.7-alpine
+FROM python:3.7-alpine3.8
 RUN apk update && apk add --virtual build-dependencies build-base gcc wget git libffi-dev
 RUN apk add --virtual build-dependencies openssl-dev
 ADD requirements.txt /app/requirements.txt
