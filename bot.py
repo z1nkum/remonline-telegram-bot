@@ -114,6 +114,7 @@ def error(bot, update, error):
 
 
 def order_sting_helper(o, detailed_flag=False):
+    tg_handle = None
 
     if 'engineer_id' in o:
         e_id = o['engineer_id']
