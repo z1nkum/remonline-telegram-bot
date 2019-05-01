@@ -2,7 +2,7 @@ version: "2"
 services:
   remonline-tg:
     build: .
-    container_name: remonline-tg
+    container_name: remonline-tg-dev
     environment:
       # you should specify these variables here or in .env file (see example)
       - TG_TOKEN=${TG_TOKEN}

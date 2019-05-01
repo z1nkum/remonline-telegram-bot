@@ -9,6 +9,7 @@ import logging
 import os
 import requests
 import re
+import time
 
 
 TG_TOKEN = os.getenv('TG_TOKEN', "")
@@ -20,12 +21,14 @@ TG_CHAT_NOTICE_LST = []
 API_KEY = os.getenv('API_KEY', "")
 API_TOKEN = '' # empty at start
 API_BASE_URL = "https://api.remonline.ru/"
-API_MAX_RETRIES = 5
-API_POLL_INTERVAL_SEC = 15
+API_MAX_RETRIES = 3
+API_POLL_INTERVAL_SEC = 30
 API_REC_PER_PAGE = 50
+DAYS_TO_TRACK = os.getenv('DAYS_TO_TRACK', 30)
+MENTION_USER_FLAG = os.getenv('MENTION_USER_FLAG', True)
 
 TRACK_DICT = {}
-
+created_at_filter_ts = int((time.time() - 86400 * DAYS_TO_TRACK) * 1000) # timestamp w ms
 
 DEBUG = os.getenv('DEBUG', False)
 HTTP_CLIENT_TIMEOUT = 5
@@ -75,12 +78,16 @@ def remonline_api_get(api_path, token=API_TOKEN, filters={}, page=1, retries=0):
         logger.error('Cant handle request to api_path "%s" max retries number "%s" reached', api_path, API_MAX_RETRIES)
         return None
 
+    sleep_sec = abs(pow(2, retries-1) - 1)
+    time.sleep(pow(2, sleep_sec)) # exponential back-off
+    logger.debug('sleep for %s sec', sleep_sec)
+
     url = "{}{}".format(API_BASE_URL, api_path)
     data_values = merge_two_dicts({'token': token, 'page': page}, filters)
 
-    r = requests.get(url, data_values)
-    logger.debug('API request to "%s" with filters "%s" return code "%s" and data "%s"',
-                 url, filters, r.status_code, r.text)
+    r = requests.get(url, data_values, timeout=HTTP_CLIENT_TIMEOUT)
+    logger.debug('API request to "%s" with filters "%s" return code "%s dv: %s"',
+                 url, filters, r.status_code, data_values)
     if r.status_code == 200:
         res = r.json()
         if 'page' in res and 'count' in res:
@@ -110,6 +117,8 @@ def order_sting_helper(o, detailed_flag=False):
 
     if 'engineer_id' in o:
         e_id = o['engineer_id']
+        if e_id in EMPLOYEES and 'tg_handle' in EMPLOYEES[e_id] and MENTION_USER_FLAG:
+            tg_handle = EMPLOYEES[e_id]['tg_handle']
     else:
         e_id = None
     if detailed_flag:
@@ -123,7 +132,11 @@ def order_sting_helper(o, detailed_flag=False):
             o['manager_notes'],
             o['engineer_notes'])
     else:
-        ret = "*{}* {} ({}) *{}*".format(o['id_label'], o['client']['name'],
+        if tg_handle:
+            ret = "*{}* {} ({}) [{}](tg://user?id={})".format(o['id_label'], o['client']['name'],
+                                             o['status']['name'], engineer_name_helper(e_id), tg_handle)
+        else:
+            ret = "*{}* {} ({}) *{}*".format(o['id_label'], o['client']['name'],
                                      o['status']['name'], engineer_name_helper(e_id))
 
     return ret
@@ -132,6 +145,9 @@ def order_sting_helper(o, detailed_flag=False):
 def engineer_name_helper(engineer_id):
     if engineer_id in EMPLOYEES:
         engineer = EMPLOYEES[engineer_id]['first_name'] + ' ' + EMPLOYEES[engineer_id]['last_name']
+        # if 'tg_handle' in EMPLOYEES[engineer_id]:
+        #     engineer = engineer + ' ' + EMPLOYEES[engineer_id]['tg_handle']
+
     else:
         engineer = '=FREE='
 
@@ -166,9 +182,12 @@ def compare_orders(current_order_list):
 def poll_orders():
     """ track orders on periodic manner """
     global TRACK_DICT
+    global created_at_filter_ts
 
-    filters = {}
+    filters = {"created_at[]": created_at_filter_ts}
+
     result = remonline_api_get('order/', filters=filters)
+    logger.debug('Poll orders: orders returned %s', len(result['data']))
 
     if 'orders' not in TRACK_DICT:
         # just started - no tracking orders. Fill-up and silently wait for changes
@@ -197,7 +216,7 @@ def poll_orders():
 def get_orders(bot, update, args):
     """ Get orders from external system """
 
-    filters = {}
+    filters = {"created_at[]": created_at_filter_ts}
     orders_detailed = False
 
     if len(args) > 0:

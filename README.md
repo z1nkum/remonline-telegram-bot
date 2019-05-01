@@ -48,6 +48,9 @@ Place following variables to .env file near the docker-compose.yaml
 | TG_CHAT_NOTICE_IDS   | no | Only this chats/contacts will be noticed about polled events. Comma-separated list |
 | API_KEY       | yes | API key obtained from remonline.ru (settings/api) | 
 | DEBUG         | no  | Verbosity output. True or False (default) | 
+| DAYS_TO_TRACK | no  | Track orders created not earlier than DAYS_TO_TRACK days. Default: 30 |
+| MENTION_USER_FLAG | no | Try to mention telegram user on status change. You need to specify telegram id in remononline notes tg:[id]| 
+
 
 
 ### Supported commands
@@ -106,6 +109,13 @@ systemctl enable docker-compose@remonline.service
 systemctl start docker-compose@remonline.service
 ```
 
+### Development
+
+There is docker-compose-dev.yaml for local development/testing
+
+Make changes in code and rebuil/run it locally with `docker-compose -f docker-compose-dev.yaml  up --force-recreate --build`
+
+Make sure you have correct .env on the same dir
 
 ### Related links
 
